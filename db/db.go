@@ -124,3 +124,83 @@ func GetUserByUsername(b *sql.DB, username string) (*models.User, error) {
 
 	return &user, nil
 }
+
+func CreateSession(b *sql.DB, session models.Session) error {
+	exists, err := GerSessionByUserId(b, session.UserID)
+	if err != nil {
+		return err
+	}
+	if exists != nil {
+		getId, err := b.Query("SELECT ID from session WHERE UserID = ?", session.UserID)
+		var sesId int
+		for getId.Next() {
+			var id int
+			getId.Scan(&id)
+			sesId = id
+		}
+
+		stmt, err := b.Prepare("UPDATE session Set Token = ?, ExpirationDate = ? WHERE ID = ?")
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+
+		_, err = stmt.Exec(session.Token, session.ExpirationDate, sesId)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	stmt, err := b.Prepare("INSERT INTO session(UserID, Token, ExpirationDate) VALUES(?,?,?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(session.UserID, session.Token, session.ExpirationDate)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func DeleteSession(db *sql.DB, token string) error {
+	stmt, err := db.Prepare("DELETE FROM session WHERE Token = ?")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(token)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func GerSessionByUserId(b *sql.DB, userId int) (*models.Session, error) {
+	row := b.QueryRow("SELECT * FROM session WHERE UserID = ? ORDER BY ExpirationDate DESC LIMIT 1", userId)
+
+	var session models.Session
+	err := row.Scan(&session.ID, &session.UserID, &session.Token, &session.ExpirationDate)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &session, nil
+}
+
+func GetSessionByToken(db *sql.DB, token string) (*models.Session, error) {
+	session := &models.Session{}
+	err := db.QueryRow("SELECT ID, UserID, Token, ExpirationDate FROM session WHERE Token = ?", token).Scan(&session.ID, &session.UserID, &session.Token, &session.ExpirationDate)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return session, nil
+}
